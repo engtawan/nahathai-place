@@ -8,6 +8,7 @@
     <link href="https://fonts.googleapis.com/css2?family=Prompt:wght@300;400;500;600;700&display=swap" rel="stylesheet">
     <style>
         body { font-family: 'Prompt', sans-serif; }
+        .print-only-block { display: none; }
         @media print {
             @page {
                 size: A4 portrait;
@@ -25,6 +26,7 @@
             #rateSettingsModal,
             #bankSettingsModal,
             #billModal,
+            #editBillModal,
             #tenantModal,
             #meterModal,
             #historyModal,
@@ -35,6 +37,9 @@
             #globalLoadingOverlay,
             .no-print {
                 display: none !important;
+            }
+            .print-only-block {
+                display: block !important;
             }
             #monthlyAccountingModal {
                 position: static !important;
@@ -107,6 +112,18 @@
                 padding: 0 !important;
                 font-weight: 600 !important;
                 background: transparent !important;
+            }
+            #expOtherNotePrintBox {
+                white-space: pre-wrap !important;
+                word-break: break-word !important;
+                overflow-wrap: break-word !important;
+                border: 1px solid #cbd5e1 !important;
+                border-radius: 8px !important;
+                padding: 6px 10px !important;
+                background: #ffffff !important;
+                font-size: 12px !important;
+                line-height: 1.5 !important;
+                color: #1e293b !important;
             }
             #dormExpenseGrid {
                 display: grid !important;
@@ -210,7 +227,7 @@
                     <p class="text-xs text-slate-500">เลือกดูข้อมูลย้อนหลังได้ 2 ปี (12 เดือน) และบันทึกรายจ่ายของหอพักในแต่ละเดือน</p>
                 </div>
                 <div class="flex items-center gap-2">
-                    <button type="button" onclick="window.print()" class="bg-indigo-600 text-white px-3.5 py-2 rounded-xl text-xs font-semibold hover:bg-indigo-700 transition">🖨️ พิมพ์ / Save PDF รายงาน</button>
+                    <button type="button" onclick="printMonthlyReport()" class="bg-indigo-600 text-white px-3.5 py-2 rounded-xl text-xs font-semibold hover:bg-indigo-700 transition">🖨️ พิมพ์ / Save PDF รายงาน</button>
                     <button type="button" onclick="closeMonthlyAccountingModal()" class="text-slate-400 hover:text-slate-700 font-bold text-2xl px-2">✕</button>
                 </div>
             </div>
@@ -269,12 +286,13 @@
                             </div>
                         </div>
 
-                        <div class="grid grid-cols-1 md:grid-cols-3 gap-3 items-center">
+                        <div class="grid grid-cols-1 md:grid-cols-3 gap-3 items-start">
                             <div class="md:col-span-2">
                                 <label class="block text-xs font-medium text-slate-600 mb-1">หมายเหตุรายจ่ายอื่นๆ (ถ้ามี)</label>
-                                <input type="text" id="expOtherNote" placeholder="เช่น ค่าซ่อมบำรุง / ค่าน้ำประปาส่วนกลาง / อุปกรณ์ทำความสะอาด" class="w-full px-3 py-2 border rounded-lg bg-white text-sm outline-none">
+                                <textarea id="expOtherNote" rows="2" oninput="syncExpenseNotePrint()" placeholder="เช่น ค่าซ่อมบำรุง / ค่าน้ำประปาส่วนกลาง / อุปกรณ์ทำความสะอาด" class="no-print w-full px-3 py-2 border rounded-lg bg-white text-sm outline-none focus:ring-2 focus:ring-amber-400"></textarea>
+                                <div id="expOtherNotePrintBox" class="print-only-block">-</div>
                             </div>
-                            <div class="bg-amber-900 text-white rounded-xl p-3 flex justify-between items-center">
+                            <div class="bg-amber-900 text-white rounded-xl p-3 flex justify-between items-center md:mt-5">
                                 <span class="text-xs font-medium">สรุปยอดรวมรายจ่าย:</span>
                                 <span class="text-lg font-bold text-amber-300" id="expTotalPreview">0 ฿</span>
                             </div>
@@ -288,7 +306,7 @@
                     </form>
                 </div>
 
-                <!-- สรุปผลประกอบการ (แผ่นที่ 1 คู่กับตารางบันทึกรายจ่ายหอพัก) -->
+                <!-- สรุปผลประกอบการ -->
                 <div id="finalSummaryGrid" class="grid grid-cols-1 md:grid-cols-3 gap-4 print-avoid-break">
                     <div class="bg-emerald-50 border border-emerald-200 rounded-2xl p-4">
                         <p class="text-xs font-semibold text-emerald-800">1. ยอดรวมเก็บค่าเช่าได้ทั้งหมด (ยืนยันสลิปแล้ว)</p>
@@ -304,7 +322,7 @@
                     </div>
                 </div>
 
-                <!-- ตารางรายการห้อง 18 ห้อง (แยกขึ้นหน้ากระดาษแผ่นที่ 2 ตอนพิมพ์/Save PDF) -->
+                <!-- ตารางรายการห้อง 18 ห้อง -->
                 <div class="bg-white border rounded-2xl overflow-hidden print-overflow-visible print-page-break-before">
                     <div class="px-4 py-3 bg-slate-800 text-white flex flex-wrap justify-between items-center gap-2 print-avoid-break">
                         <h4 class="text-sm font-bold">🏢 รายละเอียดค่าใช้จ่ายและยอดเก็บค่าเช่าทั้ง 18 ห้อง (<span id="roomsTableMonthLabel">-</span>)</h4>
@@ -517,6 +535,99 @@
         </div>
     </div>
 
+    <!-- Modal แก้ไขบิลย้อนหลัง -->
+    <div id="editBillModal" class="fixed inset-0 bg-slate-900/60 flex items-center justify-center p-4 z-[55] hidden">
+        <div class="bg-white p-6 rounded-2xl shadow-2xl w-full max-w-lg max-h-[92vh] overflow-y-auto border-2 border-indigo-200">
+            <div class="flex justify-between items-center mb-3">
+                <h2 class="text-xl font-bold text-slate-800" id="editBillModalTitle">✏️ แก้ไขบิลย้อนหลัง</h2>
+                <button type="button" onclick="closeEditBillModal()" class="text-slate-400 hover:text-slate-700 font-bold text-xl">✕</button>
+            </div>
+            <form id="editBillForm" class="space-y-4">
+                <input type="hidden" id="editBillId">
+
+                <div>
+                    <label class="block text-xs font-medium text-slate-700 mb-1">วันที่ออกบิล / รอบบิล (วัน/เดือน/ปี)</label>
+                    <input type="text" id="editBillingMonth" required class="w-full px-3 py-2 border rounded-lg outline-none text-sm">
+                </div>
+
+                <div class="bg-slate-50 p-3.5 rounded-xl border space-y-2.5">
+                    <p class="text-xs font-bold text-slate-800">📌 ค่าใช้จ่ายคงที่ (บาท)</p>
+                    <div class="grid grid-cols-1 sm:grid-cols-3 gap-2.5">
+                        <div>
+                            <label class="block text-xs text-slate-600 mb-1">1. ค่าห้อง</label>
+                            <input type="number" step="any" id="editRentAmount" required oninput="recalcEditBillPreview()" class="w-full px-2.5 py-1.5 border rounded-lg bg-white text-sm outline-none">
+                        </div>
+                        <div>
+                            <label class="block text-xs text-slate-600 mb-1">2. เคเบิล+เน็ต</label>
+                            <input type="number" step="any" id="editCableAmount" required oninput="recalcEditBillPreview()" class="w-full px-2.5 py-1.5 border rounded-lg bg-white text-sm outline-none">
+                        </div>
+                        <div>
+                            <label class="block text-xs text-slate-600 mb-1">3. ตู้เย็น</label>
+                            <input type="number" step="any" id="editFridgeAmount" required oninput="recalcEditBillPreview()" class="w-full px-2.5 py-1.5 border rounded-lg bg-white text-sm outline-none">
+                        </div>
+                    </div>
+                </div>
+
+                <div class="bg-indigo-50/50 p-3.5 rounded-xl border border-indigo-100 space-y-3">
+                    <p class="text-xs font-bold text-indigo-900">⚡ ค่าใช้จ่ายไม่คงที่ (หน่วยมิเตอร์ & อัตราต่อหน่วย)</p>
+
+                    <div class="bg-white p-3 rounded-lg border space-y-2">
+                        <p class="text-xs font-semibold text-slate-700">💧 1. ค่าน้ำ</p>
+                        <div class="grid grid-cols-3 gap-2">
+                            <div>
+                                <label class="block text-[11px] text-slate-500 mb-1">หน่วยก่อนหน้า</label>
+                                <input type="number" step="any" id="editWaterPrev" required oninput="recalcEditBillPreview()" class="w-full px-2 py-1.5 border rounded-lg text-sm outline-none">
+                            </div>
+                            <div>
+                                <label class="block text-[11px] text-slate-500 mb-1">หน่วยปัจจุบัน</label>
+                                <input type="number" step="any" id="editWaterCurr" required oninput="recalcEditBillPreview()" class="w-full px-2 py-1.5 border rounded-lg text-sm outline-none">
+                            </div>
+                            <div>
+                                <label class="block text-[11px] text-slate-500 mb-1">เรท (฿/หน่วย)</label>
+                                <input type="number" step="any" id="editWaterRate" required oninput="recalcEditBillPreview()" class="w-full px-2 py-1.5 border rounded-lg text-sm outline-none">
+                            </div>
+                        </div>
+                        <p class="text-right text-xs text-indigo-700 font-semibold">ใช้ไป <span id="editWaterUnitsCalc">0</span> หน่วย = <span id="editWaterAmountCalc">0</span> ฿</p>
+                    </div>
+
+                    <div class="bg-white p-3 rounded-lg border space-y-2">
+                        <p class="text-xs font-semibold text-slate-700">💡 2. ค่าไฟ</p>
+                        <div class="grid grid-cols-3 gap-2">
+                            <div>
+                                <label class="block text-[11px] text-slate-500 mb-1">หน่วยก่อนหน้า</label>
+                                <input type="number" step="any" id="editElectricPrev" required oninput="recalcEditBillPreview()" class="w-full px-2 py-1.5 border rounded-lg text-sm outline-none">
+                            </div>
+                            <div>
+                                <label class="block text-[11px] text-slate-500 mb-1">หน่วยปัจจุบัน</label>
+                                <input type="number" step="any" id="editElectricCurr" required oninput="recalcEditBillPreview()" class="w-full px-2 py-1.5 border rounded-lg text-sm outline-none">
+                            </div>
+                            <div>
+                                <label class="block text-[11px] text-slate-500 mb-1">เรท (฿/หน่วย)</label>
+                                <input type="number" step="any" id="editElectricRate" required oninput="recalcEditBillPreview()" class="w-full px-2 py-1.5 border rounded-lg text-sm outline-none">
+                            </div>
+                        </div>
+                        <p class="text-right text-xs text-indigo-700 font-semibold">ใช้ไป <span id="editElectricUnitsCalc">0</span> หน่วย = <span id="editElectricAmountCalc">0</span> ฿</p>
+                    </div>
+                </div>
+
+                <div>
+                    <label class="block text-xs font-medium text-slate-700 mb-1">ค่าใช้จ่ายอื่นๆ (บาท)</label>
+                    <input type="number" step="any" id="editOtherAmount" oninput="recalcEditBillPreview()" class="w-full px-3 py-2 border rounded-lg outline-none text-sm">
+                </div>
+
+                <div class="bg-slate-900 text-white rounded-xl p-3.5 flex justify-between items-center">
+                    <span class="text-sm font-medium">ยอดรวมบิลหลังแก้ไข</span>
+                    <span class="text-lg font-bold text-emerald-400" id="editBillTotalPreview">0 ฿</span>
+                </div>
+
+                <div class="flex gap-2 pt-1">
+                    <button type="button" onclick="closeEditBillModal()" class="w-1/2 bg-slate-200 text-slate-700 py-2 rounded-lg text-sm">ยกเลิก</button>
+                    <button type="submit" class="w-1/2 bg-indigo-600 text-white py-2 rounded-lg text-sm font-medium hover:bg-indigo-700">💾 บันทึกการแก้ไขบิล</button>
+                </div>
+            </form>
+        </div>
+    </div>
+
     <!-- Modal จัดการสถานะผู้เช่าและข้อมูล -->
     <div id="tenantModal" class="fixed inset-0 bg-slate-900/50 flex items-center justify-center p-4 z-50 hidden">
         <div class="bg-white p-6 rounded-2xl shadow-xl w-full max-w-md">
@@ -584,7 +695,7 @@
 
             <div class="space-y-6">
                 <div>
-                    <h3 class="font-semibold text-slate-700 mb-2">📄 รายการบิลทั้งหมด</h3>
+                    <h3 class="font-semibold text-slate-700 mb-2">📄 รายการบิลทั้งหมด (กดปุ่มแก้ไขเพื่อปรับปรุงยอดย้อนหลัง)</h3>
                     <div id="historyBillsList" class="space-y-2 text-sm">
                         <p class="text-slate-400">กำลังโหลด...</p>
                     </div>
@@ -694,6 +805,7 @@
         let adminPollTimer = null;
         let roomsCache = [];
         let activeHistoryRoom = { id: null, roomNumber: '' };
+        let activeHistoryBillsCache = [];
         let currentSettings = {
             default_rent: 3500,
             cable_internet_fee: 300,
@@ -770,6 +882,24 @@
             const mm = String(now.getMonth() + 1).padStart(2, '0');
             const yyyy = now.getFullYear();
             return `${dd}/${mm}/${yyyy}`;
+        }
+
+        function formatBillDateDMY(rawVal) {
+            if (!rawVal) return '-';
+            const str = String(rawVal).trim();
+            if (/^\d{2}\/\d{2}\/\d{4}$/.test(str)) return str;
+            if (/^\d{4}-\d{2}$/.test(str)) {
+                const [y, m] = str.split('-');
+                return `01/${m}/${y}`;
+            }
+            const d = new Date(str);
+            if (!isNaN(d.getTime())) {
+                const dd = String(d.getDate()).padStart(2, '0');
+                const mm = String(d.getMonth() + 1).padStart(2, '0');
+                const yyyy = d.getFullYear();
+                return `${dd}/${mm}/${yyyy}`;
+            }
+            return str;
         }
 
         // ระบบ Login Admin
@@ -878,6 +1008,16 @@
         // ==========================================
         // บัญชีรายรับ-รายจ่ายรายเดือน (12 เดือน ย้อนหลัง 2 ปี)
         // ==========================================
+        function syncExpenseNotePrint() {
+            const noteVal = document.getElementById('expOtherNote').value.trim();
+            document.getElementById('expOtherNotePrintBox').innerText = noteVal || '-';
+        }
+
+        function printMonthlyReport() {
+            syncExpenseNotePrint();
+            window.print();
+        }
+
         function initReportYearDropdown() {
             const currentYear = new Date().getFullYear();
             const yearSelect = document.getElementById('reportYearSelect');
@@ -989,6 +1129,7 @@
             document.getElementById('expTrashFee').value = exp.trash_fee || '';
             document.getElementById('expOtherExpense').value = exp.other_expense || '';
             document.getElementById('expOtherNote').value = exp.other_note || '';
+            syncExpenseNotePrint();
             recalcDormExpenseTotal();
 
             const badge = document.getElementById('expenseSavedBadge');
@@ -1555,6 +1696,9 @@
             }
         });
 
+        // ==========================================
+        // ประวัติการชำระเงิน & แก้ไขบิลย้อนหลัง
+        // ==========================================
         async function openHistoryModal(roomId, roomNumber) {
             activeHistoryRoom = { id: roomId, roomNumber: String(roomNumber) };
             document.getElementById('historyModalTitle').innerText = `ประวัติการชำระเงิน - ห้อง ${roomNumber}`;
@@ -1569,26 +1713,32 @@
                 return;
             }
 
+            activeHistoryBillsCache = Array.isArray(data.bills) ? data.bills : [];
             const billsDiv = document.getElementById('historyBillsList');
             billsDiv.innerHTML = '';
-            if (!data.bills || data.bills.length === 0) {
+            if (activeHistoryBillsCache.length === 0) {
                 billsDiv.innerHTML = '<p class="text-slate-400 text-xs">ยังไม่มีประวัติการออกบิล</p>';
             } else {
-                data.bills.forEach(b => {
+                activeHistoryBillsCache.forEach(b => {
                     const totalAmt = Number(b.total_amount ?? 0);
                     const paidAmt = Number(b.paid_amount ?? 0);
                     const remainAmt = Math.max(0, totalAmt - paidAmt);
                     const isPaid = b.status === 'paid' || remainAmt <= 0;
                     const statusBadge = isPaid
-                        ? '<span class="bg-emerald-100 text-emerald-700 px-2 py-0.5 rounded text-xs">ชำระแล้ว</span>'
-                        : '<span class="bg-amber-100 text-amber-700 px-2 py-0.5 rounded text-xs">ค้างชำระ</span>';
+                        ? '<span class="bg-emerald-100 text-emerald-700 px-2 py-0.5 rounded text-xs font-medium">ชำระแล้ว</span>'
+                        : '<span class="bg-amber-100 text-amber-700 px-2 py-0.5 rounded text-xs font-medium">ค้างชำระ</span>';
                     billsDiv.innerHTML += `
-                        <div class="border p-3 rounded-lg flex justify-between items-center bg-slate-50">
+                        <div class="border p-3 rounded-lg flex flex-col sm:flex-row justify-between items-start sm:items-center gap-2 bg-slate-50">
                             <div>
-                                <p class="font-bold">วันที่ / รอบบิล: ${b.billing_month}</p>
-                                <p class="text-xs text-slate-500">ยอดรวม: ${totalAmt.toLocaleString()} ฿ | ค้างอยู่: <span class="text-red-500 font-semibold">${remainAmt.toLocaleString()} ฿</span></p>
+                                <p class="font-bold text-slate-800">วันที่ / รอบบิล: ${formatBillDateDMY(b.billing_month)}</p>
+                                <p class="text-xs text-slate-500">ยอดรวม: ${totalAmt.toLocaleString()} ฿ | ชำระแล้ว: ${paidAmt.toLocaleString()} ฿ | ค้างอยู่: <span class="text-red-500 font-semibold">${remainAmt.toLocaleString()} ฿</span></p>
                             </div>
-                            ${statusBadge}
+                            <div class="flex items-center gap-2 self-end sm:self-center">
+                                ${statusBadge}
+                                <button type="button" onclick="openEditBillModal(${b.id})" class="bg-indigo-50 text-indigo-700 border border-indigo-200 px-2.5 py-1 rounded-lg text-xs font-medium hover:bg-indigo-600 hover:text-white transition">
+                                    ✏️ แก้ไขบิล
+                                </button>
+                            </div>
                         </div>
                     `;
                 });
@@ -1634,6 +1784,99 @@
         function closeHistoryModal() {
             document.getElementById('historyModal').classList.add('hidden');
         }
+
+        function openEditBillModal(billId) {
+            const bill = activeHistoryBillsCache.find(b => Number(b.id) === Number(billId));
+            if (!bill) {
+                alert('ไม่พบข้อมูลบิลที่เลือก');
+                return;
+            }
+
+            document.getElementById('editBillId').value = bill.id;
+            document.getElementById('editBillModalTitle').innerText = `✏️ แก้ไขบิลย้อนหลัง - ห้อง ${activeHistoryRoom.roomNumber}`;
+            document.getElementById('editBillingMonth').value = formatBillDateDMY(bill.billing_month);
+
+            document.getElementById('editRentAmount').value = Number(bill.rent_amount ?? 0);
+            document.getElementById('editCableAmount').value = Number(bill.cable_internet_amount ?? 0);
+            document.getElementById('editFridgeAmount').value = Number(bill.fridge_amount ?? 0);
+
+            document.getElementById('editWaterPrev').value = Number(bill.water_prev_unit ?? 0);
+            document.getElementById('editWaterCurr').value = Number(bill.water_curr_unit ?? 0);
+            document.getElementById('editWaterRate').value = Number(bill.water_rate ?? currentSettings.water_rate ?? 0);
+
+            document.getElementById('editElectricPrev').value = Number(bill.electric_prev_unit ?? 0);
+            document.getElementById('editElectricCurr').value = Number(bill.electric_curr_unit ?? 0);
+            document.getElementById('editElectricRate').value = Number(bill.electric_rate ?? currentSettings.electric_rate ?? 0);
+
+            document.getElementById('editOtherAmount').value = Number(bill.other_amount ?? 0);
+
+            recalcEditBillPreview();
+            document.getElementById('editBillModal').classList.remove('hidden');
+        }
+
+        function closeEditBillModal() {
+            document.getElementById('editBillModal').classList.add('hidden');
+        }
+
+        function recalcEditBillPreview() {
+            const rent = Number(document.getElementById('editRentAmount').value || 0);
+            const cable = Number(document.getElementById('editCableAmount').value || 0);
+            const fridge = Number(document.getElementById('editFridgeAmount').value || 0);
+            const other = Number(document.getElementById('editOtherAmount').value || 0);
+
+            const wPrev = Number(document.getElementById('editWaterPrev').value || 0);
+            const wCurr = Number(document.getElementById('editWaterCurr').value || 0);
+            const wRate = Number(document.getElementById('editWaterRate').value || 0);
+            const wUnits = Math.max(0, wCurr - wPrev);
+            const wAmount = wUnits * wRate;
+
+            const ePrev = Number(document.getElementById('editElectricPrev').value || 0);
+            const eCurr = Number(document.getElementById('editElectricCurr').value || 0);
+            const eRate = Number(document.getElementById('editElectricRate').value || 0);
+            const eUnits = Math.max(0, eCurr - ePrev);
+            const eAmount = eUnits * eRate;
+
+            document.getElementById('editWaterUnitsCalc').innerText = wUnits;
+            document.getElementById('editWaterAmountCalc').innerText = wAmount.toLocaleString();
+            document.getElementById('editElectricUnitsCalc').innerText = eUnits;
+            document.getElementById('editElectricAmountCalc').innerText = eAmount.toLocaleString();
+
+            const total = rent + cable + fridge + wAmount + eAmount + other;
+            document.getElementById('editBillTotalPreview').innerText = `${total.toLocaleString()} ฿`;
+        }
+
+        document.getElementById('editBillForm').addEventListener('submit', async (e) => {
+            e.preventDefault();
+            const billId = Number(document.getElementById('editBillId').value);
+            showLoading('กำลังบันทึกการแก้ไขบิล...');
+            try {
+                const data = await gasPost({
+                    action: 'updateBill',
+                    bill_id: billId,
+                    billing_month: document.getElementById('editBillingMonth').value.trim(),
+                    rent_amount: Number(document.getElementById('editRentAmount').value || 0),
+                    cable_internet_amount: Number(document.getElementById('editCableAmount').value || 0),
+                    fridge_amount: Number(document.getElementById('editFridgeAmount').value || 0),
+                    water_prev_unit: Number(document.getElementById('editWaterPrev').value || 0),
+                    water_curr_unit: Number(document.getElementById('editWaterCurr').value || 0),
+                    water_rate: Number(document.getElementById('editWaterRate').value || 0),
+                    electric_prev_unit: Number(document.getElementById('editElectricPrev').value || 0),
+                    electric_curr_unit: Number(document.getElementById('editElectricCurr').value || 0),
+                    electric_rate: Number(document.getElementById('editElectricRate').value || 0),
+                    other_amount: Number(document.getElementById('editOtherAmount').value || 0)
+                });
+                hideLoading();
+                alert(data.message);
+                if (data.success) {
+                    closeEditBillModal();
+                    await openHistoryModal(activeHistoryRoom.id, activeHistoryRoom.roomNumber);
+                    await loadRooms();
+                }
+            } catch (err) {
+                hideLoading();
+                alert('เกิดข้อผิดพลาดในการบันทึกการแก้ไขบิล');
+            }
+        });
 
         function openDeleteHistoryConfirm() {
             const roomNumRaw = String(activeHistoryRoom?.roomNumber ?? '').trim();
