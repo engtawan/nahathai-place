@@ -1,0 +1,666 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>ระบบชำระเงินค่าเช่าห้องพัก (ผู้เช่า)</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Prompt:wght@300;400;500;600&display=swap" rel="stylesheet">
+    <style>
+        body { font-family: 'Prompt', sans-serif; }
+        @media print {
+            body { background: #ffffff !important; padding: 0 !important; }
+            .no-print { display: none !important; }
+            #tenantDashboard { max-width: 100% !important; padding: 0 !important; }
+            #billCard { box-shadow: none !important; border: 1px solid #cbd5e1 !important; }
+        }
+    </style>
+</head>
+<body class="bg-slate-100 min-h-screen pb-12">
+
+    <!-- Global Loading Overlay -->
+    <div id="globalLoadingOverlay" class="fixed inset-0 bg-slate-900/40 backdrop-blur-[1px] flex items-center justify-center z-[60] hidden no-print">
+        <div class="bg-white px-6 py-4 rounded-2xl shadow-xl flex items-center gap-3">
+            <div class="w-5 h-5 border-2 border-indigo-600 border-t-transparent rounded-full animate-spin"></div>
+            <span class="text-sm font-medium text-slate-700" id="loadingText">กำลังเชื่อมต่อระบบ...</span>
+        </div>
+    </div>
+
+    <!-- 1. Modal เลือกห้องเข้าสู่ระบบ -->
+    <div id="tenantLoginModal" class="fixed inset-0 bg-slate-900/50 flex items-center justify-center p-4 z-50 no-print">
+        <div class="bg-white p-8 rounded-2xl shadow-xl w-full max-w-md">
+            <h1 class="text-2xl font-bold text-slate-800 text-center mb-2">🏠 เข้าสู่ระบบผู้เช่า</h1>
+            <p class="text-slate-500 text-center text-sm mb-6">กรุณาเลือกห้องพักของท่านเพื่อเข้าใช้งาน</p>
+            <form id="tenantLoginForm" class="space-y-4">
+                <div>
+                    <label class="block text-sm font-medium text-slate-700 mb-1">เลือกห้องพัก</label>
+                    <select id="roomSelect" required class="w-full px-4 py-2.5 border rounded-lg outline-none focus:ring-2 focus:ring-indigo-500 bg-white">
+                        <option value="">-- กำลังโหลดห้องพัก --</option>
+                    </select>
+                </div>
+                <button type="submit" class="w-full bg-indigo-600 text-white py-2.5 rounded-lg font-medium hover:bg-indigo-700 transition">เข้าสู่ระบบ</button>
+            </form>
+            <div id="loginError" class="text-red-500 text-sm text-center mt-3 hidden"></div>
+        </div>
+    </div>
+
+    <!-- 2. หน้าหลักผู้เช่า -->
+    <div id="tenantDashboard" class="max-w-xl mx-auto p-4 md:p-6 hidden">
+        <header class="flex justify-between items-center bg-white p-4 md:p-6 rounded-2xl shadow-sm mb-6 no-print">
+            <div>
+                <h1 class="text-xl font-bold text-slate-800" id="welcomeRoomTitle">ห้องพัก</h1>
+                <p class="text-sm text-slate-500" id="welcomeTenantName">ผู้เช่า: -</p>
+            </div>
+            <button onclick="logout()" class="text-sm text-red-500 hover:underline">ออกจากระบบ</button>
+        </header>
+
+        <!-- แจ้งเตือนกรณีสลิปไม่ถูกยืนยัน -->
+        <div id="rejectedSlipAlert" class="bg-red-50 border border-red-200 text-red-800 rounded-2xl p-4 mb-6 hidden no-print">
+            <p class="font-bold text-sm mb-1">⚠️ ใบสลิปล่าสุดไม่ได้รับการยืนยัน</p>
+            <p class="text-sm" id="rejectedSlipComment"></p>
+            <p class="text-xs text-red-600 mt-1" id="rejectedSlipTime"></p>
+        </div>
+
+        <!-- แสดงบิลปัจจุบัน + ปุ่ม Save PDF -->
+        <div id="billCard" class="bg-white rounded-2xl shadow-sm p-6 mb-6">
+            <div class="flex flex-wrap justify-between items-center gap-2 mb-4">
+                <div>
+                    <h2 class="text-lg font-bold text-slate-800" id="billDormTitle">ใบแจ้งหนี้ ณหัสทัยเพลส</h2>
+                    <p class="text-xs text-slate-500 mt-0.5" id="billRoomHeaderInfo"></p>
+                </div>
+                <button type="button" id="saveBillPdfBtn" onclick="saveBillAsPdf()" class="no-print hidden bg-rose-50 text-rose-700 border border-rose-200 px-3 py-1.5 rounded-xl text-xs font-semibold hover:bg-rose-100 transition">
+                    📥 Save PDF
+                </button>
+            </div>
+            <div id="billDetails" class="space-y-3">
+                <p class="text-sm text-slate-500">ยังไม่มีรอบบิลในขณะนี้</p>
+            </div>
+        </div>
+
+        <!-- ฟอร์มแจ้งชำระเงิน / อัปโหลดสลิป -->
+        <div id="paymentSection" class="bg-white rounded-2xl shadow-sm p-6 mb-6 hidden no-print">
+            <h2 class="text-lg font-bold text-slate-800 mb-4">💳 แจ้งชำระเงิน / แนบสลิป</h2>
+            <form id="paymentForm" class="space-y-4">
+                <div>
+                    <label class="block text-sm font-medium text-slate-700 mb-2">ประเภทการชำระ</label>
+                    <div class="flex gap-4">
+                        <label class="flex items-center gap-2 cursor-pointer">
+                            <input type="radio" name="paymentType" value="full" checked onclick="toggleAmountInput(false)">
+                            <span class="text-sm text-slate-700">จ่ายเต็มจำนวน (ยอดรวมสุทธิ)</span>
+                        </label>
+                        <label class="flex items-center gap-2 cursor-pointer">
+                            <input type="radio" name="paymentType" value="partial" onclick="toggleAmountInput(true)">
+                            <span class="text-sm text-slate-700">จ่ายบางส่วน</span>
+                        </label>
+                    </div>
+                </div>
+
+                <div id="partialAmountBox" class="hidden">
+                    <label class="block text-sm font-medium text-slate-700 mb-1">ระบุยอดที่ต้องการโอน (บาท)</label>
+                    <input type="number" step="any" id="reportedAmount" placeholder="กรอกยอดเงินที่โอน" class="w-full px-3 py-2 border rounded-lg outline-none">
+                </div>
+
+                <div>
+                    <label class="block text-sm font-medium text-slate-700 mb-1">อัปโหลดสลิปโอนเงิน</label>
+                    <input type="file" id="slipFile" accept="image/*" required class="w-full text-sm text-slate-500 file:mr-4 file:py-2 file:px-4 file:rounded-lg file:border-0 file:text-sm file:font-semibold file:bg-indigo-50 file:text-indigo-600 hover:file:bg-indigo-100">
+                </div>
+
+                <button type="submit" class="w-full bg-emerald-600 text-white py-2.5 rounded-lg font-medium hover:bg-emerald-700 transition">📤 ส่งหลักฐานการโอนเงิน</button>
+            </form>
+        </div>
+
+        <!-- 💬 ช่องแชทผู้เช่า - แอดมิน -->
+        <div id="tenantChatSection" class="bg-white rounded-2xl shadow-sm p-6 mb-6 no-print">
+            <h2 class="text-lg font-bold text-slate-800 mb-3">💬 แชทติดต่อแอดมิน</h2>
+            <div id="tenantChatMessages" class="overflow-y-auto space-y-2.5 p-3 bg-slate-50 rounded-xl mb-3 h-64">
+                <p class="text-xs text-slate-400 text-center py-8">กำลังโหลดข้อความแชท...</p>
+            </div>
+            <form id="tenantChatForm" class="flex gap-2">
+                <input type="text" id="tenantChatInput" required placeholder="พิมพ์ข้อความถึงแอดมิน..." class="flex-1 px-3 py-2 border rounded-lg text-sm outline-none focus:ring-2 focus:ring-indigo-500">
+                <button type="submit" class="bg-indigo-600 text-white px-4 py-2 rounded-lg text-sm font-medium hover:bg-indigo-700 transition">ส่ง</button>
+            </form>
+        </div>
+
+        <!-- 📋 ประวัติการชำระเงิน แยกรอบบิลแต่ละเดือน -->
+        <div id="tenantHistorySection" class="bg-white p-6 rounded-2xl shadow-sm hidden no-print">
+            <h2 class="text-lg font-bold text-slate-800 mb-4">📋 ประวัติการชำระเงิน (แยกรอบบิลแต่ละเดือน)</h2>
+            <div id="tenantBillsHistory" class="space-y-3">
+                <p class="text-sm text-slate-400">กำลังโหลดประวัติ...</p>
+            </div>
+        </div>
+    </div>
+
+    <!-- Modal ดูรูป QR / สลิปขนาดใหญ่ -->
+    <div id="imageModal" class="fixed inset-0 bg-slate-900/80 flex items-center justify-center p-4 z-50 hidden no-print" onclick="closeImageModal()">
+        <div class="bg-white p-4 rounded-2xl shadow-2xl max-w-md w-full" onclick="event.stopPropagation()">
+            <div class="flex justify-between items-center mb-3">
+                <h3 class="font-bold text-slate-800" id="imageModalTitle">QR Code ชำระเงิน</h3>
+                <button onclick="closeImageModal()" class="text-slate-400 hover:text-slate-700 text-xl font-bold">✕</button>
+            </div>
+            <img id="imageModalImg" src="" alt="QR Code" class="w-full max-h-[70vh] object-contain rounded-xl bg-slate-100">
+        </div>
+    </div>
+
+    <script>
+        // ==========================================
+        // 🔗 URL เว็บแอปของ Google Apps Script
+        // ==========================================
+        const GAS_WEB_APP_URL = 'https://script.google.com/macros/s/AKfycbwlg1h_p2WlCGemyK7irPXtDR1dX-KoFqbIfFcX5uJu-aAtlomuh6vwDgrq8l61cF7zTw/exec';
+
+        let currentRoomId = null;
+        let currentRoomNumberLabel = '';
+        let currentBillDateLabel = '';
+        let tenantPollTimer = null;
+
+        function showLoading(text = 'กำลังเชื่อมต่อระบบ...') {
+            document.getElementById('loadingText').innerText = text;
+            document.getElementById('globalLoadingOverlay').classList.remove('hidden');
+        }
+
+        function hideLoading() {
+            document.getElementById('globalLoadingOverlay').classList.add('hidden');
+        }
+
+        async function gasGet(paramsObj) {
+            const url = new URL(GAS_WEB_APP_URL);
+            Object.keys(paramsObj).forEach((k) => {
+                if (paramsObj[k] !== undefined && paramsObj[k] !== null) {
+                    url.searchParams.append(k, paramsObj[k]);
+                }
+            });
+            const res = await fetch(url.toString(), { method: 'GET' });
+            return await res.json();
+        }
+
+        async function gasPost(payloadObj) {
+            const res = await fetch(GAS_WEB_APP_URL, {
+                method: 'POST',
+                headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+                body: JSON.stringify(payloadObj)
+            });
+            return await res.json();
+        }
+
+        function fileToBase64(file) {
+            return new Promise((resolve, reject) => {
+                const reader = new FileReader();
+                reader.onload = () => resolve(reader.result);
+                reader.onerror = (err) => reject(err);
+                reader.readAsDataURL(file);
+            });
+        }
+
+        // แปลงวันที่ให้เป็น วัน/เดือน/ปี
+        function formatBillDateDMY(rawVal) {
+            if (!rawVal) return '-';
+            const str = String(rawVal).trim();
+            if (/^\d{2}\/\d{2}\/\d{4}$/.test(str)) {
+                return str;
+            }
+            if (/^\d{4}-\d{2}$/.test(str)) {
+                const [y, m] = str.split('-');
+                return `01/${m}/${y}`;
+            }
+            const d = new Date(str);
+            if (!isNaN(d.getTime())) {
+                const dd = String(d.getDate()).padStart(2, '0');
+                const mm = String(d.getMonth() + 1).padStart(2, '0');
+                const yyyy = d.getFullYear();
+                return `${dd}/${mm}/${yyyy}`;
+            }
+            return str;
+        }
+
+        function saveBillAsPdf() {
+            const origTitle = document.title;
+            const safeRoom = currentRoomNumberLabel ? `ห้อง_${currentRoomNumberLabel}` : 'ใบแจ้งหนี้';
+            const safeDate = currentBillDateLabel ? currentBillDateLabel.replace(/\//g, '-') : '';
+            document.title = `ใบแจ้งหนี้_ณหทัยเพลส_${safeRoom}${safeDate ? '_' + safeDate : ''}`;
+            window.print();
+            setTimeout(() => {
+                document.title = origTitle;
+            }, 500);
+        }
+
+        function formatChatTime(rawTime) {
+            if (!rawTime) return '';
+            const d = new Date(rawTime);
+            if (isNaN(d.getTime())) return rawTime;
+            return d.toLocaleString('th-TH', {
+                year: 'numeric',
+                month: 'short',
+                day: 'numeric',
+                hour: '2-digit',
+                minute: '2-digit'
+            }) + ' น.';
+        }
+
+        function openImageModal(url, title) {
+            document.getElementById('imageModalTitle').innerText = title;
+            document.getElementById('imageModalImg').src = url;
+            document.getElementById('imageModal').classList.remove('hidden');
+        }
+
+        function closeImageModal() {
+            document.getElementById('imageModal').classList.add('hidden');
+            document.getElementById('imageModalImg').src = '';
+        }
+
+        function copyAccountNumber(accNo) {
+            if (!accNo) return;
+            navigator.clipboard?.writeText(accNo);
+            alert(`คัดลอกเลขบัญชี ${accNo} แล้ว`);
+        }
+
+        // โหลดรายชื่อห้องใส่ใน Dropdown ตอนเปิดหน้าเว็บ
+        window.addEventListener('DOMContentLoaded', async () => {
+            const select = document.getElementById('roomSelect');
+            try {
+                const data = await gasGet({ action: 'getRooms' });
+                const rooms = data.rooms || [];
+                select.innerHTML = '<option value="">-- เลือกห้องพักของคุณ --</option>';
+                rooms.forEach(r => {
+                    select.innerHTML += `<option value="${r.id}">ห้อง ${r.room_number} (${r.tenant_name || 'ห้องว่าง'})</option>`;
+                });
+            } catch (err) {
+                console.error('ไม่สามารถโหลดรายชื่อห้องได้', err);
+                select.innerHTML = '<option value="">-- โหลดรายชื่อห้องไม่สำเร็จ กรุณารีเฟรชหน้าเว็บ --</option>';
+            }
+        });
+
+        // จัดการ Login ผู้เช่า
+        document.getElementById('tenantLoginForm').addEventListener('submit', async (e) => {
+            e.preventDefault();
+            const roomId = document.getElementById('roomSelect').value;
+            const errDiv = document.getElementById('loginError');
+            errDiv.classList.add('hidden');
+
+            showLoading('กำลังเข้าสู่ระบบห้องพัก...');
+            try {
+                const data = await gasPost({ action: 'tenantLogin', room_id: roomId });
+
+                if (data.success) {
+                    currentRoomId = roomId;
+                    currentRoomNumberLabel = String(data.room.room_number || '');
+                    document.getElementById('tenantLoginModal').classList.add('hidden');
+                    document.getElementById('tenantDashboard').classList.remove('hidden');
+                    document.getElementById('welcomeRoomTitle').innerText = `ห้อง ${data.room.room_number}`;
+                    document.getElementById('welcomeTenantName').innerText = `ผู้เช่า: ${data.room.tenant_name || '-'}`;
+                    document.getElementById('billRoomHeaderInfo').innerText = `ห้อง ${data.room.room_number} | ผู้เช่า: ${data.room.tenant_name || '-'}`;
+
+                    await Promise.all([
+                        loadTenantBill(roomId),
+                        loadTenantHistory(roomId),
+                        loadTenantChat(roomId)
+                    ]);
+
+                    if (tenantPollTimer) clearInterval(tenantPollTimer);
+                    tenantPollTimer = setInterval(() => {
+                        if (currentRoomId) {
+                            loadTenantChat(currentRoomId);
+                            loadTenantHistory(currentRoomId);
+                        }
+                    }, 12000);
+                } else {
+                    errDiv.innerText = data.message || 'เข้าสู่ระบบไม่สำเร็จ';
+                    errDiv.classList.remove('hidden');
+                }
+            } catch (err) {
+                errDiv.innerText = 'เกิดข้อผิดพลาดในการเชื่อมต่อระบบ';
+                errDiv.classList.remove('hidden');
+            } finally {
+                hideLoading();
+            }
+        });
+
+        // โหลดบิลปัจจุบันของผู้เช่า
+        async function loadTenantBill(roomId) {
+            try {
+                const data = await gasGet({ action: 'getTenantBill', roomId });
+                const billDiv = document.getElementById('billDetails');
+                const paymentSection = document.getElementById('paymentSection');
+                const pdfBtn = document.getElementById('saveBillPdfBtn');
+
+                const adminInfo = data.adminInfo || {};
+                if (adminInfo.dorm_name) {
+                    document.getElementById('billDormTitle').innerText = `ใบแจ้งหนี้ ${adminInfo.dorm_name}`;
+                }
+
+                if (!data.success || !data.bill) {
+                    billDiv.innerHTML = '<p class="text-sm text-slate-400">ยังไม่มีบิลในรอบเดือนนี้</p>';
+                    paymentSection.classList.add('hidden');
+                    pdfBtn?.classList.add('hidden');
+                    return;
+                }
+
+                pdfBtn?.classList.remove('hidden');
+
+                const b = data.bill;
+                const billDateText = formatBillDateDMY(b.billing_month);
+                currentBillDateLabel = billDateText;
+
+                const rent = Number(b.rent_amount ?? 0);
+                const cable = Number(b.cable_internet_amount ?? 0);
+                const fridge = Number(b.fridge_amount ?? 0);
+
+                const wPrev = Number(b.water_prev_unit ?? 0);
+                const wCurr = Number(b.water_curr_unit ?? wPrev);
+                const wUnits = Number(b.water_units ?? Math.max(0, wCurr - wPrev));
+                const wRate = Number(b.water_rate ?? 0);
+                const water = Number(b.water_amount ?? (wUnits * wRate));
+
+                const ePrev = Number(b.electric_prev_unit ?? 0);
+                const eCurr = Number(b.electric_curr_unit ?? ePrev);
+                const eUnits = Number(b.electric_units ?? Math.max(0, eCurr - ePrev));
+                const eRate = Number(b.electric_rate ?? 0);
+                const electric = Number(b.electric_amount ?? (eUnits * eRate));
+
+                const other = Number(b.other_amount ?? 0);
+
+                const currentMonthAmount = Number(b.current_month_amount ?? (rent + cable + fridge + water + electric + other));
+                const previousArrears = Number(b.previous_arrears ?? 0);
+                const netTotalAmount = Math.max(0, Number(b.net_total_amount ?? b.remaining_amount ?? (currentMonthAmount + previousArrears)));
+
+                const bankName = adminInfo.bank_name || '-';
+                const bankAccountNo = adminInfo.bank_account_number || adminInfo.promptpay_number || '-';
+                const accountHolder = adminInfo.promptpay_name || adminInfo.dorm_name || '-';
+                const qrUrl = adminInfo.qr_image_url || '';
+
+                billDiv.innerHTML = `
+                    <div class="border rounded-xl p-4 bg-slate-50 space-y-3 text-sm">
+                        <div class="flex justify-between items-center border-b pb-2">
+                            <span class="text-slate-600">วันที่ออกบิล / รอบบิล:</span>
+                            <span class="font-bold text-slate-800">${billDateText}</span>
+                        </div>
+
+                        <div class="space-y-1.5">
+                            <p class="text-xs font-bold text-slate-700">📌 ค่าใช้จ่ายคงที่</p>
+                            <div class="flex justify-between"><span class="text-slate-600">1. ค่าห้องพัก:</span><span>${rent.toLocaleString()} ฿</span></div>
+                            <div class="flex justify-between"><span class="text-slate-600">2. ค่าเคเบิล + เน็ต:</span><span>${cable.toLocaleString()} ฿</span></div>
+                            <div class="flex justify-between"><span class="text-slate-600">3. ค่าตู้เย็น:</span><span>${fridge.toLocaleString()} ฿</span></div>
+                        </div>
+
+                        <div class="space-y-2 border-t pt-2.5">
+                            <p class="text-xs font-bold text-indigo-900">⚡ ค่าใช้จ่ายไม่คงที่ (คำนวณจากหน่วยมิเตอร์)</p>
+
+                            <div class="bg-white p-2.5 rounded-lg border">
+                                <div class="flex justify-between font-medium">
+                                    <span>💧 ค่าน้ำ (${wUnits.toLocaleString()} หน่วย × ${wRate.toLocaleString()} ฿)</span>
+                                    <span class="text-slate-800">${water.toLocaleString()} ฿</span>
+                                </div>
+                                <p class="text-xs text-slate-500 mt-0.5">มิเตอร์: ก่อนหน้า ${wPrev.toLocaleString()} → ปัจจุบัน ${wCurr.toLocaleString()} หน่วย</p>
+                            </div>
+
+                            <div class="bg-white p-2.5 rounded-lg border">
+                                <div class="flex justify-between font-medium">
+                                    <span>💡 ค่าไฟ (${eUnits.toLocaleString()} หน่วย × ${eRate.toLocaleString()} ฿)</span>
+                                    <span class="text-slate-800">${electric.toLocaleString()} ฿</span>
+                                </div>
+                                <p class="text-xs text-slate-500 mt-0.5">มิเตอร์: ก่อนหน้า ${ePrev.toLocaleString()} → ปัจจุบัน ${eCurr.toLocaleString()} หน่วย</p>
+                            </div>
+                        </div>
+
+                        ${other > 0 ? `<div class="flex justify-between border-t pt-2"><span class="text-slate-600">ค่าใช้จ่ายอื่นๆ:</span><span>${other.toLocaleString()} ฿</span></div>` : ''}
+
+                        <div class="border-t pt-3 space-y-2 bg-white p-3.5 rounded-xl border">
+                            <div class="flex justify-between text-sm">
+                                <span class="text-slate-700 font-medium">ยอดของเดือนนี้:</span>
+                                <span class="font-semibold text-slate-900">${currentMonthAmount.toLocaleString()} ฿</span>
+                            </div>
+                            <div class="flex justify-between text-sm">
+                                <span class="text-amber-700 font-medium">ยอดที่ค้างก่อนหน้า:</span>
+                                <span class="font-semibold text-amber-700">${previousArrears.toLocaleString()} ฿</span>
+                            </div>
+                            <div class="flex justify-between font-bold text-base border-t pt-2">
+                                <span class="text-slate-900">ยอดรวมสุทธิ:</span>
+                                <span class="text-indigo-600" id="totalAmt">${netTotalAmount.toLocaleString()} ฿</span>
+                                <span class="hidden" id="remainAmt">${netTotalAmount.toLocaleString()} ฿</span>
+                            </div>
+                        </div>
+
+                        <!-- ช่องทางชำระเงิน (ซ่อนอัตโนมัติเมื่อกด Save PDF) -->
+                        <div class="no-print border-t pt-3 mt-2 bg-indigo-50/60 p-3.5 rounded-xl border border-indigo-100">
+                            <p class="text-xs font-bold text-indigo-900 mb-2">🏦 ช่องทางชำระเงิน (โอนเข้าบัญชี / QR Code)</p>
+                            <div class="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3">
+                                <div class="space-y-1 text-xs">
+                                    <p class="text-slate-600">ธนาคาร: <span class="font-semibold text-slate-800">${bankName}</span></p>
+                                    <p class="text-slate-600">ชื่อบัญชี: <span class="font-semibold text-slate-800">${accountHolder}</span></p>
+                                    <div class="flex items-center gap-2">
+                                        <span class="text-slate-600">เลขบัญชี:</span>
+                                        <span class="font-bold text-sm text-indigo-700">${bankAccountNo}</span>
+                                        ${bankAccountNo !== '-' ? `<button type="button" onclick="copyAccountNumber('${bankAccountNo}')" class="px-2 py-0.5 rounded bg-white border text-indigo-600 hover:bg-indigo-50 text-[11px]">คัดลอก</button>` : ''}
+                                    </div>
+                                </div>
+                                ${qrUrl ? `
+                                    <div class="text-center cursor-pointer shrink-0" onclick="openImageModal('${qrUrl}', 'QR Code ชำระเงิน - ${bankName}')">
+                                        <img src="${qrUrl}" alt="QR Code" class="w-24 h-24 object-contain rounded-lg border bg-white p-1 mx-auto">
+                                        <span class="block text-[11px] text-indigo-600 underline mt-1">กดขยาย QR</span>
+                                    </div>
+                                ` : '<p class="text-xs text-slate-400">ยังไม่ได้อัปโหลดรูป QR Code</p>'}
+                            </div>
+                        </div>
+                    </div>
+                `;
+                paymentSection.classList.remove('hidden');
+            } catch (err) {
+                console.error('โหลดบิลผู้เช่าไม่สำเร็จ:', err);
+            }
+        }
+
+        // โหลดประวัติการชำระเงิน แยกรอบบิลแต่ละเดือน
+        async function loadTenantHistory(roomId) {
+            try {
+                const data = await gasGet({ action: 'getRoomHistory', roomId });
+                if (!data.success) return;
+
+                const payments = Array.isArray(data.payments) ? data.payments : [];
+                const alertBox = document.getElementById('rejectedSlipAlert');
+                const latestPayment = payments.length > 0 ? payments[0] : null;
+                if (latestPayment && latestPayment.status === 'rejected') {
+                    document.getElementById('rejectedSlipComment').innerText = `เหตุผลจากแอดมิน: ${latestPayment.admin_comment || 'กรุณาตรวจสอบและส่งสลิปใหม่อีกครั้ง'}`;
+                    const timeStr = formatChatTime(latestPayment.display_time || latestPayment.created_at || latestPayment.submitted_at);
+                    document.getElementById('rejectedSlipTime').innerText = timeStr ? `ส่งสลิปเมื่อ: ${timeStr}` : '';
+                    alertBox.classList.remove('hidden');
+                } else {
+                    alertBox.classList.add('hidden');
+                }
+
+                const historyDiv = document.getElementById('tenantBillsHistory');
+                historyDiv.innerHTML = '';
+                document.getElementById('tenantHistorySection').classList.remove('hidden');
+
+                const bills = Array.isArray(data.bills) ? data.bills : [];
+                if (bills.length === 0) {
+                    historyDiv.innerHTML = '<p class="text-sm text-slate-400">ยังไม่มีประวัติบิล</p>';
+                    return;
+                }
+
+                const hasPendingSlip = payments.some(p => p.status === 'pending');
+
+                bills.forEach(b => {
+                    const billAmt = Number(b.total_amount ?? 0);
+                    const paidAmt = Number(b.paid_amount ?? 0);
+                    const remainAmt = Math.max(0, billAmt - paidAmt);
+                    const billDateLabel = formatBillDateDMY(b.billing_month);
+
+                    let transferStatusText = '';
+                    let transferStatusClass = '';
+
+                    if (remainAmt <= 0 || b.status === 'paid') {
+                        transferStatusText = 'ชำระครบแล้ว';
+                        transferStatusClass = 'bg-emerald-100 text-emerald-700';
+                    } else if (hasPendingSlip) {
+                        transferStatusText = 'รอแอดมินตรวจสอบสลิป';
+                        transferStatusClass = 'bg-sky-100 text-sky-700';
+                    } else if (paidAmt > 0 || b.status === 'partial') {
+                        transferStatusText = 'โอนแล้วบางส่วน';
+                        transferStatusClass = 'bg-amber-100 text-amber-700';
+                    } else if (latestPayment && latestPayment.status === 'rejected') {
+                        transferStatusText = 'สลิปไม่ผ่านการยืนยัน';
+                        transferStatusClass = 'bg-red-100 text-red-700';
+                    } else {
+                        transferStatusText = 'ยังไม่ชำระ';
+                        transferStatusClass = 'bg-slate-200 text-slate-700';
+                    }
+
+                    const remainBoxStyle = remainAmt > 0
+                        ? 'bg-red-50 border-red-200 text-red-700'
+                        : 'bg-emerald-50/70 border-emerald-200 text-emerald-700';
+
+                    historyDiv.innerHTML += `
+                        <div class="border rounded-xl p-4 bg-slate-50 space-y-3">
+                            <div class="flex justify-between items-center gap-2">
+                                <div>
+                                    <h4 class="font-bold text-slate-800 text-sm">วันที่ / รอบบิล: ${billDateLabel}</h4>
+                                    <p class="text-xs text-slate-500 mt-0.5">ยอดบิลรอบนี้: ${billAmt.toLocaleString()} ฿ | ชำระแล้ว: ${paidAmt.toLocaleString()} ฿</p>
+                                </div>
+                                <span class="text-xs px-3 py-1 rounded-full font-medium shrink-0 ${transferStatusClass}">
+                                    ${transferStatusText}
+                                </span>
+                            </div>
+
+                            <div class="border rounded-lg px-3.5 py-2.5 flex justify-between items-center ${remainBoxStyle}">
+                                <span class="text-xs font-semibold">ยอดค้างชำระ (${billDateLabel})</span>
+                                <span class="text-sm font-bold">${remainAmt.toLocaleString()} ฿</span>
+                            </div>
+                        </div>
+                    `;
+                });
+            } catch (err) {
+                console.error('โหลดประวัติผู้เช่าไม่สำเร็จ:', err);
+            }
+        }
+
+        // โหลดและแสดงข้อความแชทฝั่งผู้เช่า
+        async function loadTenantChat(roomId) {
+            try {
+                const res = await fetch(`${GAS_WEB_APP_URL}?action=getChat&roomId=${encodeURIComponent(roomId)}`);
+                const data = await res.json();
+                if (!data.success) return;
+
+                const box = document.getElementById('tenantChatMessages');
+                const isNearBottom = box.scrollHeight - box.scrollTop - box.clientHeight < 60;
+                box.innerHTML = '';
+
+                if (!data.messages || data.messages.length === 0) {
+                    box.innerHTML = '<p class="text-xs text-slate-400 text-center py-8">เริ่มส่งข้อความสอบถามแอดมินได้เลย</p>';
+                    return;
+                }
+
+                data.messages.forEach(m => {
+                    const isTenant = m.sender_role === 'tenant';
+                    const safeText = (m.message || '').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/\n/g, '<br>');
+                    box.innerHTML += `
+                        <div class="flex flex-col ${isTenant ? 'items-end' : 'items-start'}">
+                            <div class="max-w-[82%] rounded-2xl px-3.5 py-2 text-sm whitespace-pre-line ${isTenant ? 'bg-indigo-600 text-white' : 'bg-white border text-slate-800'}">
+                                ${safeText}
+                            </div>
+                            <span class="text-[10px] text-slate-400 mt-1 px-1">${isTenant ? 'คุณ' : 'แอดมิน'} • ${formatChatTime(m.created_at)}</span>
+                        </div>
+                    `;
+                });
+
+                if (isNearBottom || box.scrollTop === 0) {
+                    box.scrollTop = box.scrollHeight;
+                }
+            } catch (err) {
+                console.error('โหลดแชทผู้เช่าไม่สำเร็จ:', err);
+            }
+        }
+
+        // ผู้เช่าส่งข้อความแชท
+        document.getElementById('tenantChatForm').addEventListener('submit', async (e) => {
+            e.preventDefault();
+            if (!currentRoomId) return;
+            const input = document.getElementById('tenantChatInput');
+            const message = input.value.trim();
+            if (!message) return;
+
+            input.disabled = true;
+            try {
+                const data = await gasPost({
+                    action: 'sendChat',
+                    room_id: currentRoomId,
+                    sender_role: 'tenant',
+                    message
+                });
+                if (data.success) {
+                    input.value = '';
+                    await loadTenantChat(currentRoomId);
+                    const box = document.getElementById('tenantChatMessages');
+                    box.scrollTop = box.scrollHeight;
+                } else {
+                    alert(data.message || 'ส่งข้อความไม่สำเร็จ');
+                }
+            } catch (err) {
+                alert('ไม่สามารถส่งข้อความได้');
+            } finally {
+                input.disabled = false;
+                input.focus();
+            }
+        });
+
+        // ส่งสลิปโอนเงิน (อัปโหลดเข้า Google Drive ผ่าน GAS)
+        document.getElementById('paymentForm').addEventListener('submit', async (e) => {
+            e.preventDefault();
+            const paymentType = document.querySelector('input[name="paymentType"]:checked').value;
+
+            let reportedAmount = 0;
+            if (paymentType === 'full') {
+                const totalEl = document.getElementById('totalAmt');
+                const targetText = totalEl ? totalEl.innerText : '0';
+                reportedAmount = parseFloat(targetText.replace(' ฿', '').replace(/,/g, ''));
+            } else {
+                reportedAmount = parseFloat(document.getElementById('reportedAmount').value);
+            }
+
+            const slipFile = document.getElementById('slipFile').files[0];
+            if (!slipFile) {
+                alert('กรุณาเลือกไฟล์รูปภาพสลิปโอนเงิน');
+                return;
+            }
+
+            showLoading('กำลังอัปโหลดสลิปโอนเงินไปยัง Google Drive...');
+            try {
+                const slipBase64 = await fileToBase64(slipFile);
+                const data = await gasPost({
+                    action: 'uploadSlip',
+                    room_id: currentRoomId,
+                    payment_type: paymentType,
+                    reported_amount: reportedAmount,
+                    slip_base64: slipBase64,
+                    slip_filename: slipFile.name
+                });
+                hideLoading();
+
+                if (data.success) {
+                    alert(data.message);
+                    document.getElementById('paymentForm').reset();
+                    toggleAmountInput(false);
+                    await Promise.all([
+                        loadTenantBill(currentRoomId),
+                        loadTenantHistory(currentRoomId),
+                        loadTenantChat(currentRoomId)
+                    ]);
+                } else {
+                    alert('เกิดข้อผิดพลาด: ' + (data.message || 'อัปโหลดไม่สำเร็จ'));
+                }
+            } catch (err) {
+                hideLoading();
+                alert('ไม่สามารถส่งหลักฐานได้ กรุณาลองใหม่อีกครั้ง');
+            }
+        });
+
+        function toggleAmountInput(show) {
+            const box = document.getElementById('partialAmountBox');
+            if (show) box.classList.remove('hidden');
+            else box.classList.add('hidden');
+        }
+
+        function logout() {
+            if (tenantPollTimer) clearInterval(tenantPollTimer);
+            location.reload();
+        }
+    </script>
+</body>
+</html>
